@@ -1,36 +1,56 @@
-This is a [Next.js](https://nextjs.org/) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+(需要看的檔案在 `store/*` 與 `app/page.tsx` 下)
 
-## Getting Started
+# 介紹
+這裡主要是 Demo 使用 React 原生 context API 以及 useReducer 去建立一個輕量的 global state management 系統。
+使用方式如下:
 
-First, run the development server:
+```tsx
+import * as React from 'react'
+import { Context } from '@/store'
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+const Component: React.FC = () => {
+  const { state, dispatch } = React.useContext(Context)
+
+  const handleUserClear = () => {
+    dispatch('user/CLEAR_USER')
+  }
+
+  return (
+    <>
+      <h1>
+        State: {JSON.stringify(state)}
+      </h1>
+
+      <button onClick={handleUserClear}>Clear user</button>
+    </>
+  )
+}
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+其中有兩個亮點
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 1. dispatch 自動提示與型別檢查
+藉由在 React 原生的 Dispatch 外面再包一層工廠函數，做到在呼叫 dispatch 時，第一個參數 action type 可以有下拉選單。
+並且第二個參數會自動根據第一個參數的不同去做型別檢查
+詳細 Demo 見 `app/page.tsx`
+```tsx
+dispatch('user/CLEAR_USER') // 自動提示第一個有兩個 action: 'user/SET_USER' 與 'user/CLEAR_USER'
 
-This project uses [`next/font`](https://nextjs.org/docs/basic-features/font-optimization) to automatically optimize and load Inter, a custom Google Font.
+dispatch('user/SET_USER') // ❌ 報錯，因為 'user/SET_USER' 需要傳入 `{ name: string, age: number }` 做為第二參數
+dispatch('user/SET_USER', { name: 'John', age: 30 }) // ✅ Correct
+```
 
-## Learn More
+## 2. 即使 action 為非同步，其拿到的 state 也永遠是最新的
+原生的 useReducer 無法支援非同步 action。即:
 
-To learn more about Next.js, take a look at the following resources:
+```ts
+dispatch('async task') // 非同步工作。呼叫當下，傳入的 global state 為 v1
+dispatch('sync task') // 同步工作。呼叫當下，傳入的 global state 為 v1
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+// ...0.1 秒後，state 被 sync task 更新成 v2
+// ...10 秒後，async task resolved。但其拿到的 state 還是傳入當下的 v1
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js/) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/deployment) for more details.
+為了解決這個問題，在 `store/use-type-reducer.ts > useTypedReducer` 以及 `store/use-type-reducer.ts > dispatchFactory` 中
+利用了 useRef 存儲每次最新版的 state。並且 Object.getter API，使 action 中獲取 state 時背後都是呼叫 `() => stateRef.current`，
+讓非同步 action 也能隨時拿到最新版本的 state
